@@ -1,0 +1,30 @@
+# Maven build output
+target/
+*.class
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment / secrets
+.env
+*.env
+src/main/resources/application-local.yml
+src/main/resources/application-local.yaml
+src/main/resources/application-dev.yml
+src/main/resources/application-dev.yaml
+
+# Runtime files
+*.pid

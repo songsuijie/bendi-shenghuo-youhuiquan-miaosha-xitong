@@ -1,0 +1,28 @@
+server:
+  port: 8081
+spring:
+  application:
+    name: hmdp
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    timeout: ${REDIS_TIMEOUT:5s}
+    connect-timeout: ${REDIS_CONNECT_TIMEOUT:5s}
+    lettuce:
+      pool:
+        max-active: ${REDIS_POOL_MAX_ACTIVE:10}
+        max-idle: ${REDIS_POOL_MAX_IDLE:10}
+        min-idle: ${REDIS_POOL_MIN_IDLE:1}
+        time-between-eviction-runs: ${REDIS_POOL_EVICTION_INTERVAL:10s}
+  jackson:
+    default-property-inclusion: non_null # JSON处理时忽略非空字段
+mybatis-plus:
+  type-aliases-package: com.hmdp.entity # 别名扫描包
+logging:
+  level:
+    com.hmdp: debug
