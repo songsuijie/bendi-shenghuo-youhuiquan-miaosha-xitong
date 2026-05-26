@@ -2,6 +2,7 @@ package com.hmdp.controller;
 
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.ShopType;
@@ -47,7 +48,7 @@ public class ShopTypeController {
         stringRedisTemplate.opsForValue().set(
                 CACHE_SHOP_TYPE_KEY,
                 JSONUtil.toJsonStr(typeList),
-                CACHE_SHOP_TTL,
+                CACHE_SHOP_TTL + RandomUtil.randomLong(1, 10),
                 TimeUnit.MINUTES
         );
         return Result.ok(typeList);

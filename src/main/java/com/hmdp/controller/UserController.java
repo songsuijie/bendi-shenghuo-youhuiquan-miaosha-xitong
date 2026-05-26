@@ -3,15 +3,17 @@ package com.hmdp.controller;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
-import com.hmdp.entity.User;
 import com.hmdp.entity.UserInfo;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 @Slf4j
@@ -25,6 +27,9 @@ public class UserController {
     @Resource
     private IUserInfoService userInfoService;
 
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
     @PostMapping("code")
     public Result sendCode(@RequestParam("phone") String phone, HttpSession session) {
         return userService.sendCode(phone, session);
@@ -36,14 +41,18 @@ public class UserController {
     }
 
     @PostMapping("/logout")
-    public Result logout() {
-        return Result.fail("功能未完成");
+    public Result logout(HttpServletRequest request) {
+        String token = request.getHeader("authorization");
+        if (token != null && !token.isEmpty()) {
+            stringRedisTemplate.delete(RedisConstants.LOGIN_USER_KEY + token);
+        }
+        UserHolder.removeUser();
+        return Result.ok();
     }
 
     @GetMapping("/me")
     public Result me() {
-        //获取当前登陆的用户并返回
-        UserDTO user =UserHolder.getUser();
+        UserDTO user = UserHolder.getUser();
         return Result.ok(user);
     }
 
@@ -56,5 +65,15 @@ public class UserController {
         info.setCreateTime(null);
         info.setUpdateTime(null);
         return Result.ok(info);
+    }
+
+    @PostMapping("/sign")
+    public Result sign() {
+        return userService.sign();
+    }
+
+    @GetMapping("/sign/count")
+    public Result signCount() {
+        return userService.signCount();
     }
 }

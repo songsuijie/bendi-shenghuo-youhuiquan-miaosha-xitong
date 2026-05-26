@@ -5,12 +5,16 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 
 import static com.hmdp.utils.RedisConstants.CACHE_NULL_TTL;
@@ -21,6 +25,13 @@ import static com.hmdp.utils.RedisConstants.LOCK_SHOP_TTL;
 public class CacheClient {
 
     private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
+
+    static {
+        UNLOCK_SCRIPT = new DefaultRedisScript<>();
+        UNLOCK_SCRIPT.setScriptText("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0");
+        UNLOCK_SCRIPT.setResultType(Long.class);
+    }
 
     private final StringRedisTemplate stringRedisTemplate;
 
@@ -29,13 +40,13 @@ public class CacheClient {
     }
 
     public void set(String key, Object value, Long time, TimeUnit unit) {
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), time, unit);
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), randomTime(time), unit);
     }
 
     public void setWithLogicalExpire(String key, Object value, Long time, TimeUnit unit) {
         RedisData redisData = new RedisData();
         redisData.setData(value);
-        redisData.setExpireTime(LocalDateTime.now().plusSeconds(unit.toSeconds(time)));
+        redisData.setExpireTime(LocalDateTime.now().plusSeconds(unit.toSeconds(randomTime(time))));
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(redisData));
     }
 
@@ -111,7 +122,8 @@ public class CacheClient {
         }
 
         String lockKey = lockKeyPrefix + id;
-        boolean isLock = tryLock(lockKey);
+        String lockValue = UUID.randomUUID() + "-" + Thread.currentThread().getId();
+        boolean isLock = tryLock(lockKey, lockValue);
         if (isLock) {
             CACHE_REBUILD_EXECUTOR.submit(() -> {
                 try {
@@ -124,7 +136,7 @@ public class CacheClient {
                 } catch (Exception e) {
                     log.error("cache rebuild failed, key={}", key, e);
                 } finally {
-                    unlock(lockKey);
+                    unlock(lockKey, lockValue);
                 }
             });
         }
@@ -132,13 +144,17 @@ public class CacheClient {
         return r;
     }
 
-    private boolean tryLock(String key) {
+    private boolean tryLock(String key, String value) {
         Boolean flag = stringRedisTemplate.opsForValue()
-                .setIfAbsent(key, "1", LOCK_SHOP_TTL, TimeUnit.SECONDS);
+                .setIfAbsent(key, value, LOCK_SHOP_TTL, TimeUnit.SECONDS);
         return BooleanUtil.isTrue(flag);
     }
 
-    private void unlock(String key) {
-        stringRedisTemplate.delete(key);
+    private void unlock(String key, String value) {
+        stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(key), value);
+    }
+
+    private Long randomTime(Long time) {
+        return time + ThreadLocalRandom.current().nextLong(1, 10);
     }
 }
