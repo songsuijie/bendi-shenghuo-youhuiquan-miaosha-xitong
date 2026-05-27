@@ -8,11 +8,11 @@
         <version>2.3.12.RELEASE</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.hmdp</groupId>
-    <artifactId>hm-dianping</artifactId>
+    <groupId>com.locallife</groupId>
+    <artifactId>local-life-coupon-seckill</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>hm-dianping</name>
-    <description>Demo project for Spring Boot</description>
+    <name>local-life-coupon-seckill</name>
+    <description>Backend service for local-life coupons, flash-sale orders, shop discovery, and social content.</description>
     <properties>
         <java.version>1.8</java.version>
     </properties>

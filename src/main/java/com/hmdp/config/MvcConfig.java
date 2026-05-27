@@ -17,6 +17,7 @@ public class MvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 登录拦截器只负责“必须登录”的接口校验；游客可访问的查询、登录、文档接口放行。
         registry.addInterceptor(new LoginInterceptor())
                 .excludePathPatterns(
                         "/shop/**",
@@ -31,6 +32,8 @@ public class MvcConfig implements WebMvcConfigurer {
                         "/swagger-ui.html",
                         "/webjars/**"
                 ).order(1);
+
+        // Token 刷新拦截器覆盖所有请求，先解析用户并写入 ThreadLocal，再交给登录拦截器判断权限。
         registry.addInterceptor(new RefreshTokenInterceptor(stringRedisTemplate)).addPathPatterns("/**").order(0);
     }
 }

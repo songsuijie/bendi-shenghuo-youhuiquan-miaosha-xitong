@@ -40,10 +40,12 @@ public class CacheClient {
     }
 
     public void set(String key, Object value, Long time, TimeUnit unit) {
+        // 给缓存 TTL 加少量随机值，降低大量 key 同时过期导致的缓存雪崩风险。
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), randomTime(time), unit);
     }
 
     public void setWithLogicalExpire(String key, Object value, Long time, TimeUnit unit) {
+        // 逻辑过期数据不依赖 Redis 删除 key，而是把过期时间写进 value，便于过期后先返回旧值再异步重建。
         RedisData redisData = new RedisData();
         redisData.setData(value);
         redisData.setExpireTime(LocalDateTime.now().plusSeconds(unit.toSeconds(randomTime(time))));
@@ -61,6 +63,7 @@ public class CacheClient {
         String key = keyPrefix + id;
         String json = stringRedisTemplate.opsForValue().get(key);
 
+        // 命中正常 JSON 直接返回；命中空字符串说明数据库也没有该数据，是缓存穿透保护。
         if (StrUtil.isNotBlank(json)) {
             return JSONUtil.toBean(json, type);
         }
@@ -70,6 +73,7 @@ public class CacheClient {
 
         R r = dbFallback.apply(id);
         if (r == null) {
+            // 空对象短 TTL 缓存，拦截对不存在 ID 的重复访问。
             stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
             return null;
         }
@@ -94,6 +98,7 @@ public class CacheClient {
             if (json != null) {
                 return null;
             }
+            // 冷数据首次访问直接回源并写入逻辑过期缓存。
             R fresh = dbFallback.apply(id);
             if (fresh == null) {
                 stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
@@ -121,6 +126,7 @@ public class CacheClient {
             return r;
         }
 
+        // 数据逻辑过期后，只有抢到互斥锁的线程负责重建缓存，其余线程继续返回旧值，保护数据库。
         String lockKey = lockKeyPrefix + id;
         String lockValue = UUID.randomUUID() + "-" + Thread.currentThread().getId();
         boolean isLock = tryLock(lockKey, lockValue);
@@ -151,6 +157,7 @@ public class CacheClient {
     }
 
     private void unlock(String key, String value) {
+        // Lua 保证“判断锁持有人 + 删除锁”是原子操作，避免误删其他线程的锁。
         stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(key), value);
     }
 

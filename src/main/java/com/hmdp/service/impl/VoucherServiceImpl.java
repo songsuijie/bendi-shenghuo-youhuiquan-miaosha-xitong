@@ -34,6 +34,7 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
     @Override
     @Transactional
     public void addSeckillVoucher(Voucher voucher) {
+        // 新增秒杀券需要同时写入基础券表、秒杀券表，并把库存预热到 Redis 供 Lua 快速扣减。
         save(voucher);
 
         SeckillVoucher seckillVoucher = new SeckillVoucher();

@@ -44,6 +44,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     @Override
     public Result queryById(Long id) {
+        // 商户详情属于高频读取：用逻辑过期缓存抵御热点 key 失效时的大量回源。
         Shop shop = cacheClient.queryWithLogicalExpire(
                 CACHE_SHOP_KEY,
                 LOCK_SHOP_KEY,
@@ -62,6 +63,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Override
     @Transactional
     public Result update(Shop shop) {
+        // 先更新数据库，再删除缓存。后续查询会重新加载，避免缓存长期持有旧数据。
         Long id = shop.getId();
         if (id == null) {
             return Result.fail("店铺id不能为空");
@@ -73,6 +75,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     @Override
     public Result queryShopByType(Integer typeId, Integer current, Double x, Double y) {
+        // 未传坐标时走普通分页；传入坐标时走 Redis GEO，返回附近商户并附带距离。
         if (x == null || y == null) {
             Page<Shop> page = query()
                     .eq("type_id", typeId)
@@ -105,6 +108,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
         List<Shop> shops = listByIds(ids);
         Map<Long, Shop> shopMap = shops.stream().collect(Collectors.toMap(Shop::getId, Function.identity()));
+        // listByIds 不保证返回顺序，这里按 Redis GEO 的距离顺序重新组装结果。
         shops = ids.stream()
                 .map(shopMap::get)
                 .filter(shop -> shop != null)

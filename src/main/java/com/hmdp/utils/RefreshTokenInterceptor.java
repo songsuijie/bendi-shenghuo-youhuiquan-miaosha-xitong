@@ -22,11 +22,13 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        // 没有 Token 的请求可能是公开接口，直接放行，后续由 LoginInterceptor 决定是否拦截。
         String token = request.getHeader("authorization");
         if (StrUtil.isBlank(token)) {
             return true;
         }
 
+        // Redis 中存在 Token 才代表登录态有效，同时刷新有效期，形成“滑动过期”的会话体验。
         String key = RedisConstants.LOGIN_USER_KEY + token;
         Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(key);
         if (userMap.isEmpty()) {
@@ -41,6 +43,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, @Nullable Exception ex) {
+        // Tomcat 线程会复用，请求结束必须清理 ThreadLocal，避免用户信息串到下一次请求。
         UserHolder.removeUser();
     }
 }

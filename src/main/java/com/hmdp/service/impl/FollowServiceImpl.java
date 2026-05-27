@@ -34,6 +34,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
     @Override
     @Transactional
     public Result follow(Long followUserId, Boolean isFollow) {
+        // 关注关系以 MySQL 为准，同时维护 Redis Set，方便快速判断关注和求共同关注。
         UserDTO user = UserHolder.getUser();
         if (user == null) {
             return Result.fail("请先登录");
@@ -68,6 +69,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
 
     @Override
     public Result isFollow(Long followUserId) {
+        // 先查 Redis Set，未命中再查数据库，兼容缓存缺失或历史数据未预热的情况。
         UserDTO user = UserHolder.getUser();
         if (user == null) {
             return Result.fail("请先登录");
@@ -86,6 +88,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
 
     @Override
     public Result followCommons(Long otherUserId) {
+        // Redis SINTER 直接求两个关注集合的交集，得到共同关注用户 ID。
         UserDTO user = UserHolder.getUser();
         if (user == null) {
             return Result.fail("请先登录");

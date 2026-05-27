@@ -46,6 +46,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Override
     public Result saveBlog(Blog blog) {
+        // 发布笔记后采用推模式：把笔记 ID 写入粉丝的收件箱 ZSet，score 使用发布时间戳。
         UserDTO user = UserHolder.getUser();
         if (user == null) {
             return Result.fail("请先登录");
@@ -83,6 +84,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     @Override
     @Transactional
     public Result likeBlog(Long id) {
+        // 点赞状态用 ZSet 记录，score 是点赞时间；数据库 liked 字段只保存计数。
         UserDTO user = UserHolder.getUser();
         if (user == null) {
             return Result.fail("请先登录");
@@ -114,6 +116,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Override
     public Result queryBlogLikes(Long id) {
+        // ZSet 按点赞时间从早到晚取前 5 个用户，再按 Redis 返回顺序组装用户信息。
         String key = RedisConstants.BLOG_LIKED_KEY + id;
         Set<String> top5 = stringRedisTemplate.opsForZSet().range(key, 0, 4);
         if (CollUtil.isEmpty(top5)) {
@@ -160,6 +163,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Override
     public Result queryBlogOfFollow(Long lastId, Integer offset) {
+        // Feed 流使用 maxTime + offset 的滚动分页，解决同一毫秒多条数据导致的翻页重复/遗漏。
         UserDTO user = UserHolder.getUser();
         if (user == null) {
             return Result.fail("请先登录");
@@ -193,6 +197,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
         List<Blog> blogs = listByIds(ids);
         Map<Long, Blog> blogMap = blogs.stream().collect(Collectors.toMap(Blog::getId, Function.identity()));
+        // listByIds 不保证顺序，必须按 ZSet 查询出的 ID 顺序重排。
         blogs = ids.stream()
                 .map(blogMap::get)
                 .filter(blog -> blog != null)

@@ -82,12 +82,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @PostConstruct
     private void init() {
+        // 应用启动时确保 Stream 消费组存在，再启动单线程消费者顺序处理异步订单。
         createStreamGroup();
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
     }
 
     @Override
     public Result seckillVoucher(Long voucherId) {
+        // 秒杀入口只做必要前置校验；库存扣减、一人一单和入队交给 Lua 保证原子性。
         if (UserHolder.getUser() == null) {
             return Result.fail("请先登录");
         }
@@ -105,6 +107,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
         Long userId = UserHolder.getUser().getId();
         long orderId = redisIdWorker.nextId("order");
+        // Lua 成功后会写入 Redis Stream，后台消费者再异步落库，接口先返回订单号。
         Long result = stringRedisTemplate.execute(
                 SECKILL_SCRIPT,
                 Collections.emptyList(),
@@ -125,7 +128,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     }
 
     /**
-     * BlockingQueue first version kept for course learning. The final public seckill flow uses Redis Stream.
+     * 本地 BlockingQueue 版本仅保留为演进对照；当前公开秒杀链路使用 Redis Stream，支持重启后的 pending-list 补偿。
      */
     private Result seckillVoucherWithBlockingQueue(Long voucherId) {
         if (UserHolder.getUser() == null) {
@@ -175,6 +178,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Override
     public Result createVoucherOrder(Long voucherId) {
+        // 同步下单入口使用用户维度分布式锁，避免同一用户并发创建多笔同券订单。
         if (UserHolder.getUser() == null) {
             return Result.fail("请先登录");
         }
@@ -204,6 +208,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Override
     @Transactional
     public Result createVoucherOrder(VoucherOrder voucherOrder) {
+        // 数据库事务是最终一致性兜底：再次校验一人一单，并用 stock > 0 条件防止超卖。
         Long userId = voucherOrder.getUserId();
         Long voucherId = voucherOrder.getVoucherId();
 
@@ -229,6 +234,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private void createStreamGroup() {
         try {
+            // MKSTREAM 允许 stream 不存在时自动创建；BUSYGROUP 表示消费组已存在，可安全忽略。
             stringRedisTemplate.execute((RedisCallback<Object>) connection -> {
                 connection.execute(
                         "XGROUP",
@@ -249,6 +255,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     }
 
     private boolean handleVoucherOrder(VoucherOrder voucherOrder) {
+        // 异步消费者再加一层用户锁，兜住重复消息或极端并发导致的重复处理。
         RLock lock = redissonClient.getLock("lock:order:" + voucherOrder.getUserId());
         boolean isLock = lock.tryLock();
         if (!isLock) {
@@ -262,6 +269,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             if (Boolean.TRUE.equals(result.getSuccess())) {
                 return true;
             }
+            // 如果数据库已经存在订单，说明之前处理成功但 ACK 失败，按幂等成功确认消息。
             int count = query()
                     .eq("user_id", voucherOrder.getUserId())
                     .eq("voucher_id", voucherOrder.getVoucherId())
@@ -295,12 +303,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         public void run() {
             while (true) {
                 try {
+                    // 正常消费只读取该消费者上次 ACK 之后的新消息。
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
                             Consumer.from(ORDER_GROUP, ORDER_CONSUMER),
                             StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
                             StreamOffset.create(ORDER_STREAM_KEY, ReadOffset.lastConsumed())
                     );
                     if (list == null || list.isEmpty()) {
+                        // 没有新消息时顺手扫描 pending-list，补偿之前未 ACK 的订单。
                         handlePendingList();
                         continue;
                     }
@@ -317,6 +327,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         private void handlePendingList() {
             while (true) {
                 try {
+                    // 从 pending-list 最早的消息开始重试，直到没有遗留消息。
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
                             Consumer.from(ORDER_GROUP, ORDER_CONSUMER),
                             StreamReadOptions.empty().count(1),
@@ -346,7 +357,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             if (!success) {
                 return;
             }
-            // ACK only after DB success or idempotent duplicate success; otherwise keep it in pending-list.
+            // 只有数据库落单成功或幂等确认成功后才 ACK；失败消息留在 pending-list 继续补偿。
             RecordId recordId = record.getId();
             stringRedisTemplate.opsForStream().acknowledge(ORDER_STREAM_KEY, ORDER_GROUP, recordId);
         }

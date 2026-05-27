@@ -39,6 +39,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result sendCode(String phone, HttpSession session) {
+        // 验证码只保存到 Redis，TTL 到期自动失效，避免服务端 Session 绑定单机状态。
         if (RegexUtils.isPhoneInvalid(phone)) {
             return Result.fail("手机号格式错误");
         }
@@ -51,6 +52,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result login(LoginFormDTO loginForm, HttpSession session) {
+        // 登录主链路：校验手机号 -> 校验验证码 -> 查询/创建用户 -> 生成 Token -> 写入 Redis。
         String phone = loginForm.getPhone();
         if (RegexUtils.isPhoneInvalid(phone)) {
             return Result.fail("手机号格式错误");
@@ -67,6 +69,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             user = createUserWithPhone(phone);
         }
 
+        // Redis Hash 中只保存前端需要的脱敏字段，不保存密码等敏感信息。
         String token = UUID.randomUUID().toString(true);
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
         Map<String, Object> userMap = BeanUtil.beanToMap(
@@ -84,6 +87,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result sign() {
+        // 每个用户每月一张 Bitmap，第 N 天签到就把第 N-1 位设置为 1。
         UserDTO user = UserHolder.getUser();
         if (user == null) {
             return Result.fail("请先登录");
@@ -114,9 +118,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.ok(0);
         }
 
+        // BITFIELD 取出从 1 号到今天的签到位；低位代表今天，连续右移统计末尾连续 1 的个数。
         long num = result.get(0);
         int count = 0;
-        // BITFIELD returns the bits from the 1st day to today as an integer; the lowest bit is today.
         while ((num & 1) == 1) {
             count++;
             num >>>= 1;
